@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conciliador Contábil — Razão em Verde</title>
+  <!-- Fonte Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS (XLSX) via CDN para leitura e exportação .xlsx/.csv no navegador -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          colors: {
+            navy: '#1B365D',
+            navyLight: '#2B4C7E',
+            concBg: '#C6EFCE',
+            concText: '#006100',
+            pendBg: '#FFF2CC',
+            pendText: '#7F6000',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    /* Ajustes finos de rolagem e visualização contábil */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
+  <!-- Cabeçalho Executivo -->
+  <header class="bg-navy text-white shadow-md border-b border-navyLight">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-concBg text-concText flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+          ✓
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight">Conciliador Contábil — Razão em Verde</h1>
+          <p class="text-xs sm:text-sm text-slate-200">
+            Processamento 100% local no navegador (sem Python, sem Streamlit e sem envio de dados a servidor externo)
+          </p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-xs bg-navyLight/80 px-3 py-2 rounded-xl border border-white/15">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span>Modo Offline / Client-Side (.xlsx, .xls, .csv)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Conteúdo Principal -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <!-- Aviso / Mensagem de status (substitui alert/confirm) -->
+    <div id="statusBanner" class="hidden rounded-2xl px-4 py-3 text-sm font-medium border flex items-center justify-between gap-3" role="alert">
+      <span id="statusBannerText"></span>
+      <button type="button" onclick="hideBanner()" class="text-xs px-2 py-1 rounded-lg hover:bg-black/5 transition">
+        Fechar
+      </button>
+    </div>
+
+    <!-- Card 1: Upload e Configuração -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-5">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+        <div>
+          <h2 class="text-base font-semibold text-navy">1. Importar Planilha e Selecionar Colunas</h2>
+          <p class="text-xs text-slate-500">Arraste o arquivo ou clique para selecionar. Tudo roda na memória do seu navegador.</p>
+        </div>
+        <button
+          id="exportBtn"
+          type="button"
+          disabled
+          onclick="exportConciliatedWorkbook()"
+          class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 disabled:text-slate-500 text-white shadow-sm transition cursor-pointer disabled:cursor-not-allowed"
+        >
+          <span>⬇ Baixar Planilha Conciliada (.xlsx)</span>
+        </button>
+      </div>
+
+      <!-- Área Drag-and-Drop -->
+      <div
+        id="dropZone"
+        class="border-2 border-dashed border-slate-300 hover:border-navy bg-slate-50/70 hover:bg-blue-50/40 rounded-2xl p-6 text-center transition cursor-pointer"
+        onclick="document.getElementById('fileInput').click()"
+      >
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="handleFileSelect(event)" />
+        <div class="max-w-md mx-auto space-y-1.5">
+          <div class="text-2xl">📄</div>
+          <p class="text-sm font-semibold text-slate-700">
+            Clique para escolher ou arraste sua planilha aqui
+          </p>
+          <p class="text-xs text-slate-500">
+            Formatos suportados: <span class="font-medium text-slate-700">.xlsx, .xls, .csv</span>
+          </p>
+          <p id="selectedFileLabel" class="text-xs font-semibold text-navy pt-1 hidden"></p>
+        </div>
+      </div>
+
+      <!-- Seletores de Aba, Débito, Crédito, Data e Máx. Parcelas -->
+      <div id="configPanel" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 pt-1 opacity-60 pointer-events-none">
+        <div>
+          <label for="sheetSelect" class="block text-xs font-semibold text-slate-700 mb-1.5">Aba da Planilha</label>
+          <select id="sheetSelect" onchange="onSheetOrColChange()" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy">
+          </select>
+        </div>
+
+        <div>
+          <label for="debitSelect" class="block text-xs font-semibold text-slate-700 mb-1.5">Coluna de Débito</label>
+          <select id="debitSelect" onchange="onSheetOrColChange()" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy">
+          </select>
+        </div>
+
+        <div>
+          <label for="creditSelect" class="block text-xs font-semibold text-slate-700 mb-1.5">Coluna de Crédito</label>
+          <select id="creditSelect" onchange="onSheetOrColChange()" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy">
+          </select>
+        </div>
+
+        <div>
+          <label for="dateSelect" class="block text-xs font-semibold text-slate-700 mb-1.5">Coluna de Data (opcional)</label>
+          <select id="dateSelect" onchange="onSheetOrColChange()" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy">
+          </select>
+        </div>
+
+        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 flex flex-col justify-center">
+          <div class="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
+            <label for="maxSubsetRange">Máx. parcelas soma</label>
+            <span id="maxSubsetValue" class="px-2 py-0.5 rounded-lg bg-navy text-white tabular-nums">4</span>
+          </div>
+          <input
+            id="maxSubsetRange"
+            type="range"
+            min="2"
+            max="5"
+            value="4"
+            oninput="document.getElementById('maxSubsetValue').textContent = this.value; runReconciliation();"
+            class="w-full accent-navy cursor-pointer"
+          />
+          <span class="text-[11px] text-slate-500 mt-0.5">2 a 5 créditos p/ débito</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Card 2: KPIs -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+        <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Débitos</div>
+        <div id="kpiDebits" class="mt-2 text-xl sm:text-2xl font-bold text-navy tabular-nums">R$ 0,00</div>
+        <div id="kpiDebitsCount" class="mt-1 text-xs text-slate-500 tabular-nums">0 lançamentos</div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+        <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Créditos</div>
+        <div id="kpiCredits" class="mt-2 text-xl sm:text-2xl font-bold text-navy tabular-nums">R$ 0,00</div>
+        <div id="kpiCreditsCount" class="mt-1 text-xs text-slate-500 tabular-nums">0 lançamentos</div>
+      </div>
+
+      <div class="bg-concBg/70 rounded-2xl shadow-sm border border-emerald-300 p-4 sm:p-5">
+        <div class="text-xs font-semibold uppercase tracking-wider text-concText">Valor Conciliado</div>
+        <div id="kpiReconciled" class="mt-2 text-xl sm:text-2xl font-bold text-concText tabular-nums">R$ 0,00</div>
+        <div id="kpiGroupsCount" class="mt-1 text-xs font-medium text-concText/90 tabular-nums">0 grupos conciliados</div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+        <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Saldo Líquido (Déb + Créd)</div>
+        <div id="kpiBalance" class="mt-2 text-xl sm:text-2xl font-bold text-slate-800 tabular-nums">R$ 0,00</div>
+        <div id="kpiStatusSummary" class="mt-1 text-xs text-slate-500 tabular-nums">0 Conc. / 0 Pend.</div>
+      </div>
+    </section>
+
+    <!-- Card 3: Resumo Mensal e Grupos Conciliados -->
+    <section id="summarySection" class="hidden grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Gráfico SVG Limpo: Débitos vs Créditos por Mês -->
+      <div class="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 flex flex-col justify-between">
+        <div class="mb-3">
+          <h3 class="text-sm font-semibold text-navy">Resumo Mensal — Débitos vs. Créditos</h3>
+          <p class="text-xs text-slate-500">Comparativo visual por competência (quando coluna de Data selecionada)</p>
+        </div>
+        <div id="monthlyChartContainer" class="w-full min-h-[220px] flex items-center justify-center bg-slate-50/70 rounded-xl border border-slate-100 p-3">
+          <span class="text-xs text-slate-400">Selecione uma coluna de Data para visualizar o gráfico mensal.</span>
+        </div>
+      </div>
+
+      <!-- Tabela de Grupos Conciliados -->
+      <div class="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 flex flex-col">
+        <div class="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-semibold text-navy">Grupos Conciliados (CONC-XX)</h3>
+            <p class="text-xs text-slate-500">Casamentos 1 para 1 e composições exatas por soma de créditos</p>
+          </div>
+          <span id="groupsBadge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-concBg text-concText tabular-nums">
+            0 grupos
+          </span>
+        </div>
+        <div class="overflow-auto max-h-60 rounded-xl border border-slate-200">
+          <table class="min-w-full text-xs border-collapse">
+            <thead class="bg-navy text-white sticky top-0 z-10">
+              <tr>
+                <th class="py-2 px-3 text-center font-semibold">Grupo</th>
+                <th class="py-2 px-3 text-center font-semibold">Linhas (Déb / Créd)</th>
+                <th class="py-2 px-3 text-right font-semibold">Valor (R$)</th>
+                <th class="py-2 px-3 text-left font-semibold">Detalhamento</th>
+              </tr>
+            </thead>
+            <tbody id="groupsTableBody" class="divide-y divide-slate-200 bg-white">
+              <tr>
+                <td colspan="4" class="py-6 text-center text-slate-400">Nenhum lançamento conciliado ainda.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Card 4: Tabela Interativa de Lançamentos -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-navy">2. Lançamentos do Razão</h2>
+          <p class="text-xs text-slate-500">
+            Células em <span class="px-1.5 py-0.5 rounded bg-concBg text-concText font-semibold">verde</span> indicam valores conciliados.
+          </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          <!-- Filtro de Status -->
+          <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 self-start">
+            <button type="button" data-filter="ALL" onclick="setStatusFilter('ALL')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-navy text-white transition cursor-pointer">
+              Todos
+            </button>
+            <button type="button" data-filter="Conciliado" onclick="setStatusFilter('Conciliado')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition cursor-pointer">
+              Conciliados
+            </button>
+            <button type="button" data-filter="Pendente" onclick="setStatusFilter('Pendente')" class="filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 transition cursor-pointer">
+              Pendentes
+            </button>
+          </div>
+
+          <!-- Busca -->
+          <input
+            id="searchInput"
+            type="text"
+            oninput="renderMainTable()"
+            placeholder="Buscar histórico, valor, grupo..."
+            class="rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy w-full sm:w-64"
+          />
+        </div>
+      </div>
+
+      <div class="overflow-auto max-h-[520px] rounded-xl border border-slate-200">
+        <table id="mainTable" class="min-w-full text-xs sm:text-sm border-collapse tabular-nums">
+          <thead id="mainTableHead" class="bg-navy text-white sticky top-0 z-10">
+            <tr>
+              <th class="py-2.5 px-3 text-left font-semibold">Aguardando arquivo...</th>
+            </tr>
+          </thead>
+          <tbody id="mainTableBody" class="divide-y divide-slate-200 bg-white">
+            <tr>
+              <td class="py-10 px-4 text-center text-slate-400">
+                Envie um arquivo .xlsx, .xls ou .csv acima para visualizar e conciliar os lançamentos.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Rodapé com instrução clara de uso -->
+  <footer class="bg-white border-t border-slate-200 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <strong class="text-navy">Como usar sem instalar nada:</strong> Salve este código como <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-800">conciliador.html</code> e abra com duplo clique no navegador (Chrome, Edge, Firefox) — não precisa de Python ou Streamlit.
+      </div>
+      <div class="text-slate-400">
+        Conciliação 100% local • Exportação Excel (.xlsx) com 2 abas
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    /**
+     * Estado global da aplicação no navegador.
+     */
+    const state = {
+      workbook: null,
+      fileName: 'Razao',
+      sheetName: '',
+      headers: [],
+      rawRows: [], // array de arrays representando as linhas de dados (a partir da linha 2 no Excel)
+      debitColIdx: 0,
+      creditColIdx: 1,
+      dateColIdx: -1,
+      maxSubsetSize: 4,
+      statusFilter: 'ALL',
+      reconciledResult: null,
+    };
+
+    function showBanner(msg, type = 'info') {
+      const banner = document.getElementById('statusBanner');
+      const text = document.getElementById('statusBannerText');
+      banner.classList.remove('hidden', 'bg-blue-50', 'border-blue-200', 'text-blue-900', 'bg-amber-50', 'border-amber-200', 'text-amber-900', 'bg-emerald-50', 'border-emerald-200', 'text-emerald-900');
+
+      if (type === 'error' || type === 'warn') {
+        banner.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-900');
+      } else if (type === 'success') {
+        banner.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-900');
+      } else {
+        banner.classList.add('bg-blue-50', 'border-blue-200', 'text-blue-900');
+      }
+      text.textContent = msg;
+    }
+
+    function hideBanner() {
+      document.getElementById('statusBanner').classList.add('hidden');
+    }
+
+    function formatBRL(val) {
+      const num = Number(val || 0);
+      return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function formatNumberPT(val) {
+      const num = Number(val || 0);
+      return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    /**
+     * Converte valores numéricos ou strings no padrão BR/US para número float.
+     */
+    function parseNumericValue(val) {
+      if (val === null || val === undefined || val === '') return 0;
+      if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+      let str = String(val).trim();
+      if (!str) return 0;
+      // Remove R$, espaços e parênteses contábeis negativos
+      const isParenNeg = /^\(.*\)$/.test(str);
+      str = str.replace(/R\$/gi, '').replace(/\s+/g, '').replace(/[()]/g, '');
+      // Se tiver vírgula e ponto, assume ponto como milhar e vírgula como decimal
+      if (str.includes(',') && str.includes('.')) {
+        str = str.replace(/\./g, '').replace(',', '.');
+      } else if (str.includes(',')) {
+        str = str.replace(',', '.');
+      }
+      const parsed = parseFloat(str);
+      if (!Number.isFinite(parsed)) return 0;
+      return isParenNeg ? -Math.abs(parsed) : parsed;
+    }
+
+    /**
+     * Formata datas vindas do Excel (número serial, Date ou string) para DD/MM/YYYY.
+     */
+    function formatDateBR(val) {
+      if (val === null || val === undefined || val === '') return '';
+      if (val instanceof Date && !isNaN(val.getTime())) {
+        const d = String(val.getUTCDate()).padStart(2, '0');
+        const m = String(val.getUTCMonth() + 1).padStart(2, '0');
+        const y = val.getUTCFullYear();
+        return `${d}/${m}/${y}`;
+      }
+      if (typeof val === 'number' && val > 20000 && val < 90000) {
+        // Serial Excel (base 1899-12-30)
+        const utcDays = Math.floor(val - 25569);
+        const dateObj = new Date(utcDays * 86400 * 1000);
+        if (!isNaN(dateObj.getTime())) {
+          const d = String(dateObj.getUTCDate()).padStart(2, '0');
+          const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+          const y = dateObj.getUTCFullYear();
+          return `${d}/${m}/${y}`;
+        }
+      }
+      const str = String(val).trim();
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) return str;
+      const dMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (dMatch) return `${dMatch[3]}/${dMatch[2]}/${dMatch[1]}`;
+      return str;
+    }
+
+    /**
+     * Extrai chave YYYY-MM para agrupamento mensal quando possível.
+     */
+    function extractYearMonth(val) {
+      if (val === null || val === undefined || val === '') return '';
+      if (val instanceof Date && !isNaN(val.getTime())) {
+        return `${val.getUTCFullYear()}-${String(val.getUTCMonth() + 1).padStart(2, '0')}`;
+      }
+      if (typeof val === 'number' && val > 20000 && val < 90000) {
+        const utcDays = Math.floor(val - 25569);
+        const dateObj = new Date(utcDays * 86400 * 1000);
+        if (!isNaN(dateObj.getTime())) {
+          return `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}`;
+        }
+      }
+      const str = String(val).trim();
+      const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})/);
+      if (isoMatch) return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}`;
+      const brMatch = str.match(/^\d{1,2}\/(\d{1,2})\/(\d{4})/);
+      if (brMatch) return `${brMatch[2]}-${brMatch[1].padStart(2, '0')}`;
+      return '';
+    }
+
+    /**
+     * Detecta o índice da coluna com base em palavras-chave.
+     */
+    function detectColumnIndex(cols, keywords, fallback = 0) {
+      for (let i = 0; i < cols.length; i++) {
+        const norm = String(cols[i] || '').trim().toLowerCase();
+        if (keywords.some((k) => norm.includes(k))) return i;
+      }
+      return Math.min(fallback, Math.max(0, cols.length - 1));
+    }
+
+    // Eventos Drag-and-Drop
+    const dropZone = document.getElementById('dropZone');
+    ['dragenter', 'dragover'].forEach((evtName) => {
+      dropZone.addEventListener(evtName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('border-navy', 'bg-blue-50/60');
+      });
+    });
+    ['dragleave', 'drop'].forEach((evtName) => {
+      dropZone.addEventListener(evtName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('border-navy', 'bg-blue-50/60');
+      });
+    });
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        loadWorkbookFile(files[0]);
+      }
+    });
+
+    function handleFileSelect(event) {
+      const files = event.target?.files;
+      if (files && files.length > 0) {
+        loadWorkbookFile(files[0]);
+      }
+    }
+
+    function loadWorkbookFile(file) {
+      if (typeof XLSX === 'undefined') {
+        showBanner('Biblioteca SheetJS (XLSX) não carregada. Verifique a conexão ou use um arquivo local após carregar o cache do navegador.', 'warn');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, { type: 'array', cellDates: true });
+          if (!wb.SheetNames || wb.SheetNames.length === 0) {
+            showBanner('Nenhuma aba encontrada na planilha.', 'warn');
+            return;
+          }
+
+          state.workbook = wb;
+          state.fileName = file.name.replace(/\.[^/.]+$/, '');
+
+          const sheetSelect = document.getElementById('sheetSelect');
+          sheetSelect.innerHTML = '';
+          wb.SheetNames.forEach((name) => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sheetSelect.appendChild(opt);
+          });
+
+          // Prioriza aba chamada "Razao" se existir
+          const razaoIdx = wb.SheetNames.findIndex((s) => s.trim().toLowerCase() === 'razao');
+          sheetSelect.selectedIndex = razaoIdx >= 0 ? razaoIdx : 0;
+
+          const fileLabel = document.getElementById('selectedFileLabel');
+          fileLabel.textContent = `Arquivo carregado: ${file.name}`;
+          fileLabel.classList.remove('hidden');
+
+          document.getElementById('configPanel').classList.remove('opacity-60', 'pointer-events-none');
+          hideBanner();
+          populateColumnsForSelectedSheet();
+        } catch (err) {
+          showBanner(`Erro ao ler o arquivo: ${err.message || err}`, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function populateColumnsForSelectedSheet() {
+      const sheetName = document.getElementById('sheetSelect').value;
+      state.sheetName = sheetName;
+      const ws = state.workbook.Sheets[sheetName];
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      if (!matrix || matrix.length === 0) {
+        showBanner('A aba selecionada está vazia.', 'warn');
+        return;
+      }
+
+      const rawHeaders = matrix[0].map((h, idx) => {
+        const clean = String(h ?? '').trim();
+        return clean || `Coluna_${idx + 1}`;
+      });
+
+      // Remove linhas completamente vazias ao final
+      const dataRows = matrix.slice(1).filter((r) => r.some((cell) => cell !== '' && cell !== null && cell !== undefined));
+
+      state.headers = rawHeaders;
+      state.rawRows = dataRows.map((r) => rawHeaders.map((_, i) => (r[i] !== undefined ? r[i] : '')));
+
+      const debitSelect = document.getElementById('debitSelect');
+      const creditSelect = document.getElementById('creditSelect');
+      const dateSelect = document.getElementById('dateSelect');
+
+      debitSelect.innerHTML = '';
+      creditSelect.innerHTML = '';
+      dateSelect.innerHTML = '<option value="-1">(Nenhuma)</option>';
+
+      rawHeaders.forEach((colName, idx) => {
+        const optD = document.createElement('option');
+        optD.value = String(idx);
+        optD.textContent = colName;
+        debitSelect.appendChild(optD);
+
+        const optC = document.createElement('option');
+        optC.value = String(idx);
+        optC.textContent = colName;
+        creditSelect.appendChild(optC);
+
+        const optDt = document.createElement('option');
+        optDt.value = String(idx);
+        optDt.textContent = colName;
+        dateSelect.appendChild(optDt);
+      });
+
+      const defDeb = detectColumnIndex(rawHeaders, ['débito', 'debito', 'deb'], 0);
+      const defCred = detectColumnIndex(rawHeaders, ['crédito', 'credito', 'cred'], Math.min(1, rawHeaders.length - 1));
+      const defDate = detectColumnIndex(rawHeaders, ['data', 'dt'], -1);
+
+      debitSelect.value = String(defDeb);
+      creditSelect.value = String(defCred);
+      dateSelect.value = defDate >= 0 ? String(defDate) : '-1';
+
+      runReconciliation();
+    }
+
+    function onSheetOrColChange() {
+      if (!state.workbook) return;
+      const currentSheet = document.getElementById('sheetSelect').value;
+      if (currentSheet !== state.sheetName) {
+        populateColumnsForSelectedSheet();
+      } else {
+        runReconciliation();
+      }
+    }
+
+    /**
+     * Executa a conciliação idêntica ao fluxo anterior:
+     * 1ª passada: casamentos exatos 1 para 1 (valor absoluto em centavos).
+     * 2ª passada: soma exata de combinações de créditos não usados (2 até N parcelas) para um débito.
+     */
+    function runReconciliation() {
+      if (!state.workbook || state.rawRows.length === 0) return;
+
+      const debIdx = parseInt(document.getElementById('debitSelect').value, 10);
+      const credIdx = parseInt(document.getElementById('creditSelect').value, 10);
+      const dtIdx = parseInt(document.getElementById('dateSelect').value, 10);
+      const maxSubset = parseInt(document.getElementById('maxSubsetRange').value, 10) || 4;
+
+      state.debitColIdx = debIdx;
+      state.creditColIdx = credIdx;
+      state.dateColIdx = dtIdx;
+      state.maxSubsetSize = maxSubset;
+
+      if (debIdx === credIdx) {
+        showBanner('Escolha colunas diferentes para Débito e Crédito.', 'warn');
+        document.getElementById('exportBtn').disabled = true;
+        return;
+      }
+      hideBanner();
+
+      const debits = [];
+      const credits = [];
+      let rawDebSum = 0;
+      let rawCredSum = 0;
+
+      for (let i = 0; i < state.rawRows.length; i++) {
+        const excelRow = i + 2; // Linha 1 é cabeçalho
+        const row = state.rawRows[i];
+        const dRaw = parseNumericValue(row[debIdx]);
+        const cRaw = parseNumericValue(row[credIdx]);
+        rawDebSum += dRaw;
+        rawCredSum += cRaw;
+
+        const dCents = Math.round(Math.abs(dRaw) * 100);
+        const cCents = Math.round(Math.abs(cRaw) * 100);
+        const dtStr = dtIdx >= 0 ? formatDateBR(row[dtIdx]) : '';
+
+        if (dCents > 0) {
+          debits.push({ rowIndex: i, excelRow, cents: dCents, amount: dCents / 100, dateStr: dtStr });
+        }
+        if (cCents > 0) {
+          credits.push({ rowIndex: i, excelRow, cents: cCents, amount: cCents / 100, dateStr: dtStr });
+        }
+      }
+
+      const usedCreditRows = new Set();
+      const matchedDebitRows = new Set();
+      const concGroups = [];
+      let grpCounter = 1;
+
+      // 1ª passada: correspondência exata 1 para 1
+      for (const d of debits) {
+        for (const c of credits) {
+          if (!usedCreditRows.has(c.rowIndex) && d.cents === c.cents) {
+            const gid = `CONC-${String(grpCounter).padStart(2, '0')}`;
+            grpCounter++;
+            usedCreditRows.add(c.rowIndex);
+            matchedDebitRows.add(d.rowIndex);
+
+            const dPart = d.dateStr ? ` (${d.dateStr})` : '';
+            const cPart = c.dateStr ? ` (${c.dateStr})` : '';
+            concGroups.push({
+              id: gid,
+              debitRowIndices: [d.rowIndex],
+              creditRowIndices: [c.rowIndex],
+              debitExcelRows: [d.excelRow],
+              creditExcelRows: [c.excelRow],
+              cents: d.cents,
+              amount: d.amount,
+              desc: `Débito R$ ${formatNumberPT(d.amount)}${dPart} = Crédito R$ ${formatNumberPT(c.amount)}${cPart}`,
+            });
+            break;
+          }
+        }
+      }
+
+      // 2ª passada: soma exata de múltiplos créditos (2 até maxSubset) para um débito
+      function findSubset(items, targetCents, maxK, startIdx, current, outRef) {
+        if (outRef.found) return;
+        if (current.length > 0 && current.length <= maxK) {
+          const sumCents = current.reduce((acc, item) => acc + item.cents, 0);
+          if (sumCents === targetCents && current.length >= 2) {
+            outRef.found = true;
+            outRef.comb = current.slice();
+            return;
+          }
+          if (sumCents > targetCents || current.length === maxK) return;
+        }
+        for (let i = startIdx; i < items.length; i++) {
+          if (outRef.found) return;
+          const nextSum = current.reduce((acc, item) => acc + item.cents, 0) + items[i].cents;
+          if (nextSum <= targetCents) {
+            current.push(items[i]);
+            findSubset(items, targetCents, maxK, i + 1, current, outRef);
+            current.pop();
+          }
+        }
+      }
+
+      for (const d of debits) {
+        if (matchedDebitRows.has(d.rowIndex)) continue;
+        const availCredits = credits.filter((c) => !usedCreditRows.has(c.rowIndex));
+        if (availCredits.length < 2) continue;
+
+        // Limita o pool caso haja centenas de créditos para evitar travamento no navegador
+        const pool = availCredits.length > 80 ? availCredits.slice(0, 80) : availCredits;
+        const outRef = { found: false, comb: [] };
+        findSubset(pool, d.cents, maxSubset, 0, [], outRef);
+
+        if (outRef.found && outRef.comb.length >= 2) {
+          const gid = `CONC-${String(grpCounter).padStart(2, '0')}`;
+          grpCounter++;
+          matchedDebitRows.add(d.rowIndex);
+          outRef.comb.forEach((c) => usedCreditRows.add(c.rowIndex));
+
+          const dPart = d.dateStr ? ` (${d.dateStr})` : '';
+          const parcelas = outRef.comb
+            .map((c) => `R$ ${formatNumberPT(c.amount)}${c.dateStr ? ` (${c.dateStr})` : ''}`)
+            .join(' + ');
+
+          concGroups.push({
+            id: gid,
+            debitRowIndices: [d.rowIndex],
+            creditRowIndices: outRef.comb.map((c) => c.rowIndex),
+            debitExcelRows: [d.excelRow],
+            creditExcelRows: outRef.comb.map((c) => c.excelRow),
+            cents: d.cents,
+            amount: d.amount,
+            desc: `Débito R$ ${formatNumberPT(d.amount)}${dPart} = ${parcelas}`,
+          });
+        }
+      }
+
+      // Mapeia cada linha conciliada ao seu grupo e indica quais células pintam de verde
+      const rowGroupMap = new Map(); // rowIndex -> groupObj
+      const greenDebitRows = new Set();
+      const greenCreditRows = new Set();
+
+      for (const g of concGroups) {
+        g.debitRowIndices.forEach((rIdx) => {
+          rowGroupMap.set(rIdx, g);
+          greenDebitRows.add(rIdx);
+        });
+        g.creditRowIndices.forEach((rIdx) => {
+          rowGroupMap.set(rIdx, g);
+          greenCreditRows.add(rIdx);
+        });
+      }
+
+      const totalDebAbsCents = debits.reduce((acc, x) => acc + x.cents, 0);
+      const totalCredAbsCents = credits.reduce((acc, x) => acc + x.cents, 0);
+      const totalReconciledCents = concGroups.reduce((acc, x) => acc + x.cents, 0);
+      const netBalanceRaw = rawDebSum + rawCredSum;
+
+      // Resumo mensal se houver coluna de data
+      const monthlyMap = new Map();
+      if (dtIdx >= 0) {
+        for (let i = 0; i < state.rawRows.length; i++) {
+          const ym = extractYearMonth(state.rawRows[i][dtIdx]);
+          if (!ym) continue;
+          if (!monthlyMap.has(ym)) {
+            monthlyMap.set(ym, { month: ym, debAbs: 0, credAbs: 0 });
+          }
+          const mObj = monthlyMap.get(ym);
+          mObj.debAbs += Math.abs(parseNumericValue(state.rawRows[i][debIdx]));
+          mObj.credAbs += Math.abs(parseNumericValue(state.rawRows[i][credIdx]));
+        }
+      }
+      const monthlySummary = Array.from(monthlyMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+
+      state.reconciledResult = {
+        concGroups,
+        rowGroupMap,
+        greenDebitRows,
+        greenCreditRows,
+        debitsCount: debits.length,
+        creditsCount: credits.length,
+        totalDebAbs: totalDebAbsCents / 100,
+        totalCredAbs: totalCredAbsCents / 100,
+        totalReconciled: totalReconciledCents / 100,
+        netBalanceRaw,
+        concRowsCount: rowGroupMap.size,
+        pendRowsCount: state.rawRows.length - rowGroupMap.size,
+        monthlySummary,
+      };
+
+      document.getElementById('exportBtn').disabled = false;
+      updateKPIs();
+      renderSummarySection();
+      renderMainTable();
+    }
+
+    function updateKPIs() {
+      const r = state.reconciledResult;
+      if (!r) return;
+
+      document.getElementById('kpiDebits').textContent = formatBRL(r.totalDebAbs);
+      document.getElementById('kpiDebitsCount').textContent = `${r.debitsCount} lançamentos`;
+
+      document.getElementById('kpiCredits').textContent = formatBRL(r.totalCredAbs);
+      document.getElementById('kpiCreditsCount').textContent = `${r.creditsCount} lançamentos`;
+
+      document.getElementById('kpiReconciled').textContent = formatBRL(r.totalReconciled);
+      document.getElementById('kpiGroupsCount').textContent = `${r.concGroups.length} grupos conciliados`;
+
+      document.getElementById('kpiBalance').textContent = formatBRL(r.netBalanceRaw);
+      document.getElementById('kpiStatusSummary').textContent = `${r.concRowsCount} Conc. / ${r.pendRowsCount} Pend.`;
+    }
+
+    function renderSummarySection() {
+      const r = state.reconciledResult;
+      if (!r) return;
+
+      const sec = document.getElementById('summarySection');
+      sec.classList.remove('hidden');
+      sec.classList.add('grid');
+
+      document.getElementById('groupsBadge').textContent = `${r.concGroups.length} ${r.concGroups.length === 1 ? 'grupo' : 'grupos'}`;
+
+      const tbody = document.getElementById('groupsTableBody');
+      if (r.concGroups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-400">Nenhuma correspondência exata encontrada com os parâmetros atuais.</td></tr>';
+      } else {
+        tbody.innerHTML = r.concGroups
+          .map((g) => {
+            const lns = `Déb L${g.debitExcelRows.join(',')} | Créd L${g.creditExcelRows.join(',')}`;
+            return `
+              <tr class="bg-concBg/55 text-concText font-medium">
+                <td class="py-2 px-3 text-center font-bold">${escapeHtml(g.id)}</td>
+                <td class="py-2 px-3 text-center whitespace-nowrap">${escapeHtml(lns)}</td>
+                <td class="py-2 px-3 text-right font-bold tabular-nums">${formatNumberPT(g.amount)}</td>
+                <td class="py-2 px-3 text-left">${escapeHtml(g.desc)}</td>
+              </tr>
+            `;
+          })
+          .join('');
+      }
+
+      renderMonthlyChart(r.monthlySummary);
+    }
+
+    function renderMonthlyChart(months) {
+      const container = document.getElementById('monthlyChartContainer');
+      if (!months || months.length === 0) {
+        container.innerHTML = '<span class="text-xs text-slate-400 text-center">Selecione uma coluna de Data válida para exibir o gráfico mensal.</span>';
+        return;
+      }
+
+      const maxVal = Math.max(
+        1,
+        ...months.flatMap((m) => [m.debAbs, m.credAbs])
+      );
+
+      const barWidth = 14;
+      const groupGap = 18;
+      const chartHeight = 145;
+      const topPad = 14;
+      const width = Math.max(320, months.length * (barWidth * 2 + groupGap + 12) + 40);
+      const height = chartHeight + topPad + 36;
+
+      let barsSvg = '';
+      months.forEach((m, idx) => {
+        const xBase = 24 + idx * (barWidth * 2 + groupGap + 10);
+        const debH = Math.round((m.debAbs / maxVal) * chartHeight);
+        const credH = Math.round((m.credAbs / maxVal) * chartHeight);
+
+        const debY = topPad + (chartHeight - debH);
+        const credY = topPad + (chartHeight - credH);
+
+        barsSvg += `
+          <g>
+            <rect x="${xBase}" y="${debY}" width="${barWidth}" height="${debH}" rx="3" fill="#1B365D">
+              <title>${m.month} — Débitos: ${formatBRL(m.debAbs)}</title>
+            </rect>
+            <rect x="${xBase + barWidth + 3}" y="${credY}" width="${barWidth}" height="${credH}" rx="3" fill="#15803D">
+              <title>${m.month} — Créditos: ${formatBRL(m.credAbs)}</title>
+            </rect>
+            <text x="${xBase + barWidth + 1.5}" y="${topPad + chartHeight + 16}" text-anchor="middle" font-size="10" fill="#475569">${m.month}</text>
+          </g>
+        `;
+      });
+
+      container.innerHTML = `
+        <div class="w-full overflow-x-auto">
+          <div class="flex items-center justify-end gap-4 text-[11px] font-medium text-slate-600 mb-2">
+            <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-[#1B365D] inline-block"></span>Débitos</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-[#15803D] inline-block"></span>Créditos</span>
+          </div>
+          <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" class="mx-auto block">
+            <line x1="16" y1="${topPad + chartHeight}" x2="${width - 10}" y2="${topPad + chartHeight}" stroke="#CBD5E1" stroke-width="1" />
+            ${barsSvg}
+          </svg>
+        </div>
+      `;
+    }
+
+    function setStatusFilter(filterVal) {
+      state.statusFilter = filterVal;
+      document.querySelectorAll('.filter-btn').forEach((btn) => {
+        const isActive = btn.getAttribute('data-filter') === filterVal;
+        if (isActive) {
+          btn.classList.add('bg-navy', 'text-white');
+          btn.classList.remove('text-slate-600', 'hover:text-slate-900');
+        } else {
+          btn.classList.remove('bg-navy', 'text-white');
+          btn.classList.add('text-slate-600', 'hover:text-slate-900');
+        }
+      });
+      renderMainTable();
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderMainTable() {
+      const r = state.reconciledResult;
+      if (!r) return;
+
+      const query = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+      const thead = document.getElementById('mainTableHead');
+      const tbody = document.getElementById('mainTableBody');
+
+      const allCols = [...state.headers, 'Status Conciliação', 'Grupo / Observação Conciliação'];
+      thead.innerHTML = `
+        <tr>
+          <th class="py-2.5 px-2.5 text-center font-semibold whitespace-nowrap">L</th>
+          ${allCols.map((c) => `<th class="py-2.5 px-3 text-left font-semibold whitespace-nowrap">${escapeHtml(c)}</th>`).join('')}
+        </tr>
+      `;
+
+      const filteredIndices = [];
+      for (let i = 0; i < state.rawRows.length; i++) {
+        const isConc = r.rowGroupMap.has(i);
+        const statusText = isConc ? 'Conciliado' : 'Pendente';
+        if (state.statusFilter !== 'ALL' && statusText !== state.statusFilter) continue;
+
+        const grp = r.rowGroupMap.get(i);
+        const obsText = isConc ? `${grp.id}: ${grp.desc}` : 'Sem correspondência exata de crédito/débito';
+
+        if (query) {
+          const rowHaystack = [
+            String(i + 2),
+            ...state.rawRows[i].map((v) => String(v ?? '')),
+            statusText,
+            obsText,
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!rowHaystack.includes(query)) continue;
+        }
+        filteredIndices.push(i);
+      }
+
+      if (filteredIndices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="99" class="py-8 text-center text-slate-400">Nenhum lançamento corresponde ao filtro aplicado.</td></tr>';
+        return;
+      }
+
+      // Limita renderização DOM em telas grandes a 600 linhas para manter fluidez no navegador
+      const displayLimit = 600;
+      const rowsToRender = filteredIndices.slice(0, displayLimit);
+
+      tbody.innerHTML = rowsToRender
+        .map((rowIdx, idxPos) => {
+          const row = state.rawRows[rowIdx];
+          const isConc = r.rowGroupMap.has(rowIdx);
+          const grp = r.rowGroupMap.get(rowIdx);
+          const statusText = isConc ? 'Conciliado' : 'Pendente';
+          const obsText = isConc ? `${grp.id}: ${grp.desc}` : 'Sem correspondência exata de crédito/débito';
+          const zebraClass = idxPos % 2 === 1 ? 'bg-slate-50/70' : 'bg-white';
+
+          const cellsHtml = row
+            .map((val, cIdx) => {
+              let displayVal = val;
+              let alignClass = 'text-left';
+              let greenClass = '';
+
+              if (cIdx === state.dateColIdx) {
+                displayVal = formatDateBR(val);
+                alignClass = 'text-center';
+              } else if (cIdx === state.debitColIdx || cIdx === state.creditColIdx) {
+                const num = parseNumericValue(val);
+                displayVal = num === 0 && (val === '' || val === null || val === undefined) ? '-' : formatNumberPT(num);
+                alignClass = 'text-right';
+              }
+
+              if (cIdx === state.debitColIdx && r.greenDebitRows.has(rowIdx)) {
+                greenClass = 'bg-concBg text-concText font-bold';
+              } else if (cIdx === state.creditColIdx && r.greenCreditRows.has(rowIdx)) {
+                greenClass = 'bg-concBg text-concText font-bold';
+              }
+
+              return `<td class="py-2 px-3 whitespace-nowrap ${alignClass} ${greenClass}">${escapeHtml(displayVal)}</td>`;
+            })
+            .join('');
+
+          const statusBadgeClass = isConc
+            ? 'bg-concBg text-concText font-bold'
+            : 'bg-pendBg text-pendText font-medium';
+
+          const obsCellClass = isConc
+            ? 'bg-concBg/70 text-concText font-medium'
+            : 'text-slate-600';
+
+          return `
+            <tr class="${zebraClass} hover:bg-blue-50/30">
+              <td class="py-2 px-2.5 text-center text-slate-400 font-medium">${rowIdx + 2}</td>
+              ${cellsHtml}
+              <td class="py-2 px-3 text-center whitespace-nowrap">
+                <span class="inline-block px-2.5 py-0.5 rounded-full text-xs ${statusBadgeClass}">${statusText}</span>
+              </td>
+              <td class="py-2 px-3 whitespace-nowrap ${obsCellClass}">${escapeHtml(obsText)}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      if (filteredIndices.length > displayLimit) {
+        tbody.innerHTML += `
+          <tr class="bg-slate-100">
+            <td colspan="99" class="py-2.5 px-4 text-center text-xs text-slate-600 font-medium">
+              Exibindo ${displayLimit} de ${filteredIndices.length} lançamentos na tela (a exportação .xlsx inclui todos os ${state.rawRows.length} lançamentos).
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    /**
+     * Exporta o arquivo .xlsx com duas abas ("Razao" e "Resumo Conciliacao"),
+     * aplicando estilos de preenchimento verde (#C6EFCE) e cabeçalhos azul marinho (#1B365D).
+     */
+    function exportConciliatedWorkbook() {
+      const r = state.reconciledResult;
+      if (!r || typeof XLSX === 'undefined') {
+        showBanner('Não há dados conciliados para exportar.', 'warn');
+        return;
+      }
+
+      try {
+        const wb = XLSX.utils.book_new();
+        const origSheetName = state.sheetName || 'Razao';
+        const safeOrigName = origSheetName.slice(0, 31);
+
+        // Monta matriz da aba principal com colunas extras + linha de totais
+        const headersOut = [...state.headers, 'Status Conciliação', 'Grupo / Observação Conciliação'];
+        const aoaMain = [headersOut];
+
+        for (let i = 0; i < state.rawRows.length; i++) {
+          const rowCopy = state.rawRows[i].map((v, cIdx) => {
+            if (cIdx === state.debitColIdx || cIdx === state.creditColIdx) {
+              if (v === '' || v === null || v === undefined) return 0;
+              const num = parseNumericValue(v);
+              return num;
+            }
+            return v;
+          });
+
+          const isConc = r.rowGroupMap.has(i);
+          const grp = r.rowGroupMap.get(i);
+          const statusText = isConc ? 'Conciliado' : 'Pendente';
+          const obsText = isConc ? `${grp.id}: ${grp.desc}` : 'Sem correspondência exata de crédito/débito';
+          aoaMain.push([...rowCopy, statusText, obsText]);
+        }
+
+        const lastDataRow = state.rawRows.length + 1; // 1-based (inclui header na linha 1)
+        const totRowNum = lastDataRow + 1;
+        const debColLetter = XLSX.utils.encode_col(state.debitColIdx);
+        const credColLetter = XLSX.utils.encode_col(state.creditColIdx);
+        const statusColIdx = state.headers.length;
+        const obsColIdx = state.headers.length + 1;
+        const statusColLetter = XLSX.utils.encode_col(statusColIdx);
+
+        const totalRowArr = new Array(headersOut.length).fill('');
+        const labelIdx = state.headers.length >= 3 ? 2 : 0;
+        totalRowArr[labelIdx] = `TOTAL GERAL (${state.rawRows.length} LANÇAMENTOS)`;
+        totalRowArr[state.debitColIdx] = { f: `SUM(${debColLetter}2:${debColLetter}${lastDataRow})` };
+        totalRowArr[state.creditColIdx] = { f: `SUM(${credColLetter}2:${credColLetter}${lastDataRow})` };
+        totalRowArr[statusColIdx] = {
+          f: `COUNTIF(${statusColLetter}2:${statusColLetter}${lastDataRow},"Conciliado")&" Conc. / "&COUNTIF(${statusColLetter}2:${statusColLetter}${lastDataRow},"Pendente")&" Pend."`,
+        };
+        totalRowArr[obsColIdx] = {
+          f: `"Saldo Líquido: "&TEXT(${debColLetter}${totRowNum}+${credColLetter}${totRowNum},"#.##0,00")`,
+        };
+        aoaMain.push(totalRowArr);
+
+        const wsMain = XLSX.utils.aoa_to_sheet(aoaMain);
+
+        // Larguras de colunas
+        wsMain['!cols'] = headersOut.map((h, idx) => {
+          if (idx === obsColIdx) return { wch: 72 };
+          if (idx === statusColIdx) return { wch: 20 };
+          return { wch: Math.min(Math.max(String(h).length + 6, 14), 38) };
+        });
+
+        // Estilização de células (suportada em builds com estilo ou ignorada sem erro em builds padrão)
+        const navyHeaderStyle = {
+          fill: { patternType: 'solid', fgColor: { rgb: '1B365D' } },
+          font: { name: 'Calibri', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+          alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        };
+        const greenCellStyle = {
+          fill: { patternType: 'solid', fgColor: { rgb: 'C6EFCE' } },
+          font: { name: 'Calibri', sz: 11, bold: true, color: { rgb: '006100' } },
+        };
+        const amberCellStyle = {
+          fill: { patternType: 'solid', fgColor: { rgb: 'FFF2CC' } },
+          font: { name: 'Calibri', sz: 10, color: { rgb: '7F6000' } },
+        };
+        const totalRowStyle = {
+          fill: { patternType: 'solid', fgColor: { rgb: 'E8EEF5' } },
+          font: { name: 'Calibri', sz: 11, bold: true, color: { rgb: '1B365D' } },
+        };
+
+        for (let c = 0; c < headersOut.length; c++) {
+          const hAddr = XLSX.utils.encode_cell({ r: 0, c });
+          if (wsMain[hAddr]) wsMain[hAddr].s = navyHeaderStyle;
+        }
+
+        for (let i = 0; i < state.rawRows.length; i++) {
+          const excelR = i + 1; // 0-based para encode_cell (linha 2 no Excel é r=1)
+          const isConc = r.rowGroupMap.has(i);
+
+          if (r.greenDebitRows.has(i)) {
+            const addr = XLSX.utils.encode_cell({ r: excelR, c: state.debitColIdx });
+            if (wsMain[addr]) {
+              wsMain[addr].s = { ...greenCellStyle, numFmt: '#,##0.00;-#,##0.00;"-"' };
+            }
+          }
+          if (r.greenCreditRows.has(i)) {
+            const addr = XLSX.utils.encode_cell({ r: excelR, c: state.creditColIdx });
+            if (wsMain[addr]) {
+              wsMain[addr].s = { ...greenCellStyle, numFmt: '#,##0.00;-#,##0.00;"-"' };
+            }
+          }
+
+          const stAddr = XLSX.utils.encode_cell({ r: excelR, c: statusColIdx });
+          const obsAddr = XLSX.utils.encode_cell({ r: excelR, c: obsColIdx });
+          if (wsMain[stAddr]) wsMain[stAddr].s = isConc ? greenCellStyle : amberCellStyle;
+          if (wsMain[obsAddr] && isConc) wsMain[obsAddr].s = greenCellStyle;
+        }
+
+        for (let c = 0; c < headersOut.length; c++) {
+          const tAddr = XLSX.utils.encode_cell({ r: totRowNum - 1, c });
+          if (wsMain[tAddr]) {
+            wsMain[tAddr].s = totalRowStyle;
+            if (c === state.debitColIdx || c === state.creditColIdx) {
+              wsMain[tAddr].z = '#,##0.00;-#,##0.00;"-"';
+            }
+          }
+        }
+
+        XLSX.utils.book_append_sheet(wb, wsMain, safeOrigName);
+
+        // Monta aba "Resumo Conciliacao"
+        const aoaRes = [];
+        aoaRes.push([`CONCILIAÇÃO CONTÁBIL — ${safeOrigName.toUpperCase()} (VALORES EM VERDE)`]);
+        aoaRes.push([`Débito: ${state.headers[state.debitColIdx]} | Crédito: ${state.headers[state.creditColIdx]} | Total de linhas: ${state.rawRows.length}`]);
+        aoaRes.push([]);
+        aoaRes.push(['Total Débitos (R$)', '', 'Total Créditos (R$)', '', 'Valor Conciliado (R$)', '', 'Saldo Líquido (R$)']);
+
+        const startGrpRow = 9;
+        const safeEndGrp = r.concGroups.length > 0 ? startGrpRow + r.concGroups.length - 1 : startGrpRow;
+        const totGrpRow = r.concGroups.length > 0 ? startGrpRow + r.concGroups.length : startGrpRow + 1;
+
+        aoaRes.push([
+          { f: `-SUM('${safeOrigName}'!${debColLetter}2:${debColLetter}${lastDataRow})` },
+          '',
+          { f: `SUM('${safeOrigName}'!${credColLetter}2:${credColLetter}${lastDataRow})` },
+          '',
+          r.concGroups.length > 0 ? { f: `SUM(C${startGrpRow}:C${safeEndGrp})` } : 0,
+          '',
+          { f: `SUM('${safeOrigName}'!${debColLetter}2:${debColLetter}${lastDataRow})+SUM('${safeOrigName}'!${credColLetter}2:${credColLetter}${lastDataRow})` },
+        ]);
+        aoaRes.push([]);
+        aoaRes.push([]);
+        aoaRes.push(['Grupo', 'Linhas (Déb / Créd)', 'Valor Conciliado (R$)', 'Detalhamento das Parcelas']);
+
+        for (const g of r.concGroups) {
+          aoaRes.push([
+            g.id,
+            `Déb L${g.debitExcelRows.join(',')} | Créd L${g.creditExcelRows.join(',')}`,
+            g.amount,
+            g.desc,
+          ]);
+        }
+
+        aoaRes.push([
+          'TOTAL CONCILIADO',
+          `${r.concGroups.length} Grupos`,
+          r.concGroups.length > 0 ? { f: `SUM(C${startGrpRow}:C${safeEndGrp})` } : 0,
+          'Soma total conciliada entre lançamentos de crédito e débito',
+        ]);
+
+        if (r.monthlySummary && r.monthlySummary.length > 0 && state.dateColIdx >= 0) {
+          const dtColLetter = XLSX.utils.encode_col(state.dateColIdx);
+          aoaRes.push([]);
+          aoaRes.push([]);
+          aoaRes.push(['Mês (Ano-Mês)', 'Débitos (R$)', 'Créditos (R$)', 'Saldo Líquido (R$)']);
+
+          const mHdrRow = aoaRes.length;
+          r.monthlySummary.forEach((m, idx) => {
+            const rNum = mHdrRow + 1 + idx;
+            const [yr, mo] = m.month.split('-').map(Number);
+            aoaRes.push([
+              m.month,
+              { f: `-SUMIFS('${safeOrigName}'!$${debColLetter}$2:$${debColLetter}$${lastDataRow},'${safeOrigName}'!$${dtColLetter}$2:$${dtColLetter}$${lastDataRow},">="&DATE(${yr},${mo},1),'${safeOrigName}'!$${dtColLetter}$2:$${dtColLetter}$${lastDataRow},"<"&EOMONTH(DATE(${yr},${mo},1),0)+1)` },
+              { f: `SUMIFS('${safeOrigName}'!$${credColLetter}$2:$${credColLetter}$${lastDataRow},'${safeOrigName}'!$${dtColLetter}$2:$${dtColLetter}$${lastDataRow},">="&DATE(${yr},${mo},1),'${safeOrigName}'!$${dtColLetter}$2:$${dtColLetter}$${lastDataRow},"<"&EOMONTH(DATE(${yr},${mo},1),0)+1)` },
+              { f: `C${rNum}-B${rNum}` },
+            ]);
+          });
+        }
+
+        const wsRes = XLSX.utils.aoa_to_sheet(aoaRes);
+        wsRes['!cols'] = [
+          { wch: 22 },
+          { wch: 28 },
+          { wch: 22 },
+          { wch: 72 },
+        ];
+
+        // Destaca linhas dos grupos conciliados em verde na aba de resumo
+        for (let gIdx = 0; gIdx < r.concGroups.length; gIdx++) {
+          const zeroBasedRow = startGrpRow - 1 + gIdx;
+          for (let c = 0; c < 4; c++) {
+            const addr = XLSX.utils.encode_cell({ r: zeroBasedRow, c });
+            if (wsRes[addr]) {
+              wsRes[addr].s = greenCellStyle;
+              if (c === 2) wsRes[addr].z = '#,##0.00';
+            }
+          }
+        }
+
+        XLSX.utils.book_append_sheet(wb, wsRes, 'Resumo Conciliacao');
+
+        const outFileName = `${state.fileName}_Conciliado_Verde.xlsx`;
+        XLSX.writeFile(wb, outFileName);
+        showBanner(`Planilha "${outFileName}" gerada e baixada com sucesso!`, 'success');
+      } catch (err) {
+        showBanner(`Erro ao exportar .xlsx: ${err.message || err}`, 'error');
+      }
+    }
+  </script>
+</body>
+</html>
